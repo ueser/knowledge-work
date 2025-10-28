@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Knowledge Graph Visualizer</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js" integrity="sha512-PvJ8V+RaH//RUW2KIiMzFxLpy0X82aZPL0LQALZSQcLFgSfTyZe3C2g63QiTTBxT4v3yn6jNAfkMzUWxKnP9cw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  </head>
+  <body>
+    <header>
+      <h1>Knowledge Graph Visualizer</h1>
+      <p class="tagline">
+        Upload one or more JSON files describing your knowledge graph and explore
+        it interactively.
+      </p>
+    </header>
+    <main>
+      <section class="controls">
+        <label for="fileInput" class="file-label">
+          <span>Select JSON files</span>
+          <input id="fileInput" type="file" accept="application/json" multiple />
+        </label>
+        <button id="clearButton" type="button">Clear graph</button>
+      </section>
+      <section class="status">
+        <div id="statusMessage">No files loaded.</div>
+      </section>
+      <section class="graph-container">
+        <svg id="graph"></svg>
+      </section>
+    </main>
+    <div id="tooltip" class="tooltip" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

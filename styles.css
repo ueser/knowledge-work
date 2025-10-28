@@ -1,0 +1,200 @@
+:root {
+  color-scheme: light dark;
+  font-family: "Inter", "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  --bg: #f7f7fb;
+  --fg: #1f1f2d;
+  --accent: #4f46e5;
+  --accent-light: rgba(79, 70, 229, 0.1);
+  --border: rgba(31, 31, 45, 0.08);
+  --tooltip-bg: rgba(31, 31, 45, 0.85);
+  --tooltip-fg: #fff;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  padding: 2.5rem 5vw 1rem;
+  text-align: center;
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.15), rgba(37, 99, 235, 0.1));
+}
+
+header h1 {
+  margin: 0;
+  font-size: clamp(2rem, 3vw, 2.5rem);
+}
+
+.tagline {
+  margin: 0.75rem auto 0;
+  max-width: 48rem;
+  color: rgba(31, 31, 45, 0.8);
+}
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 0 5vw 3rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+  padding-top: 1.5rem;
+}
+
+.file-label {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  box-shadow: 0 10px 30px rgba(79, 70, 229, 0.25);
+}
+
+.file-label:hover {
+  transform: translateY(-1px) scale(1.01);
+}
+
+.file-label input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+button {
+  padding: 0.75rem 1.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--fg);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+
+button:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.status {
+  text-align: center;
+  font-size: 0.95rem;
+  color: rgba(31, 31, 45, 0.75);
+  min-height: 1.5rem;
+}
+
+.graph-container {
+  flex: 1;
+  min-height: 55vh;
+  background: #fff;
+  border-radius: 1.5rem;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+#graph {
+  width: 100%;
+  height: 100%;
+}
+
+.node circle {
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 2px;
+}
+
+.node text {
+  font-size: 0.8rem;
+  fill: var(--fg);
+  pointer-events: none;
+  text-anchor: middle;
+  dominant-baseline: hanging;
+  transform: translateY(0.75rem);
+}
+
+.link {
+  stroke: rgba(79, 70, 229, 0.45);
+  stroke-width: 2px;
+}
+
+.link-label {
+  font-size: 0.75rem;
+  fill: rgba(31, 31, 45, 0.85);
+  pointer-events: none;
+}
+
+.link-label-wrapper {
+  cursor: pointer;
+}
+
+.tooltip {
+  position: fixed;
+  pointer-events: none;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-fg);
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.75rem;
+  font-size: 0.85rem;
+  max-width: min(24rem, 90vw);
+  opacity: 0;
+  transform: translate(-50%, -120%);
+  transition: opacity 0.15s ease;
+  z-index: 999;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.25);
+}
+
+.tooltip.visible {
+  opacity: 1;
+}
+
+.tooltip-meta {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.tooltip ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.tooltip li {
+  margin: 0.1rem 0;
+}
+
+@media (max-width: 720px) {
+  main {
+    padding: 0 1.5rem 2.5rem;
+  }
+
+  .graph-container {
+    min-height: 60vh;
+  }
+}
