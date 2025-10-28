@@ -5,7 +5,72 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Knowledge Graph Visualizer</title>
     <link rel="stylesheet" href="styles.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js" integrity="sha512-PvJ8V+RaH//RUW2KIiMzFxLpy0X82aZPL0LQALZSQcLFgSfTyZe3C2g63QiTTBxT4v3yn6jNAfkMzUWxKnP9cw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+      function loadLocalD3Fallback() {
+        return new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'vendor/d3.v7.min.js';
+          script.onload = () => {
+            console.info('Loaded local D3 fallback from vendor/d3.v7.min.js.');
+            resolve();
+          };
+          script.onerror = () => {
+            console.error('Unable to load local D3 fallback script.');
+            reject();
+          };
+          document.head.appendChild(script);
+        });
+      }
+
+      function ensureD3Loaded() {
+        if (typeof window.d3 === 'undefined') {
+          loadLocalD3Fallback().catch(() => {
+            console.error('Unable to initialize the visualization because the D3 library did not load. Please check your internet connection (or bundle D3 locally) and reload the page.');
+          });
+        }
+      }
+
+      // Try to load D3 from CDN first
+      const d3Script = document.createElement('script');
+      d3Script.src = 'https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js';
+      d3Script.crossOrigin = 'anonymous';
+      d3Script.referrerPolicy = 'no-referrer';
+      d3Script.onload = () => {
+        console.info('Loaded D3 from CDN.');
+      };
+      d3Script.onerror = () => {
+        console.warn('Failed to load D3 from CDN, attempting local fallback...');
+        ensureD3Loaded();
+      };
+      document.head.appendChild(d3Script);
+
+      // Load Graphology core (Graph constructors)
+      const graphologyCoreScript = document.createElement('script');
+      graphologyCoreScript.src = 'https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js';
+      graphologyCoreScript.onload = () => {
+        console.info('Loaded Graphology core from CDN.');
+
+        // Then load Graphology library (metrics, algorithms, etc.)
+        const graphologyLibScript = document.createElement('script');
+        graphologyLibScript.src = 'https://cdn.jsdelivr.net/npm/graphology-library@0.8.0/dist/graphology-library.min.js';
+        graphologyLibScript.onload = () => {
+          console.info('Loaded Graphology library from CDN.');
+          // Expose metrics globally for easier access
+          if (typeof graphologyLibrary !== 'undefined' && graphologyLibrary.metrics) {
+            window.graphologyMetrics = graphologyLibrary.metrics;
+            console.info('Graphology metrics available.');
+          }
+        };
+        graphologyLibScript.onerror = () => {
+          console.warn('Failed to load Graphology library from CDN. Metrics will be unavailable.');
+        };
+        document.head.appendChild(graphologyLibScript);
+      };
+      graphologyCoreScript.onerror = () => {
+        console.warn('Failed to load Graphology core from CDN. Metrics will be unavailable.');
+      };
+      document.head.appendChild(graphologyCoreScript);
+    </script>
   </head>
   <body>
     <header>
@@ -22,9 +87,49 @@
           <input id="fileInput" type="file" accept="application/json" multiple />
         </label>
         <button id="clearButton" type="button">Clear graph</button>
+        <div class="control-group">
+          <label for="layoutSelect">Layout:</label>
+          <select id="layoutSelect">
+            <option value="force">Force-Directed</option>
+            <option value="hierarchical">Hierarchical</option>
+            <option value="circular">Circular</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="forceStrength">Force Strength:</label>
+          <input type="range" id="forceStrength" min="-1000" max="100" value="-350" step="50" />
+          <span id="forceStrengthValue">-350</span>
+        </div>
+        <div class="control-group">
+          <label for="metricSelect">Metric:</label>
+          <select id="metricSelect">
+            <option value="degree">Degree</option>
+            <option value="pagerank">PageRank</option>
+            <option value="betweenness">Betweenness</option>
+            <option value="closeness">Closeness</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="metricThreshold">Min Threshold:</label>
+          <input type="range" id="metricThreshold" min="0" max="100" value="0" step="5" />
+          <span id="metricThresholdValue">0%</span>
+        </div>
+        <div class="control-group">
+          <label>
+            <input type="checkbox" id="colorByMetric" />
+            Color by metric
+          </label>
+        </div>
+        <div class="control-group">
+          <label>
+            <input type="checkbox" id="sizeByMetric" />
+            Size by metric
+          </label>
+        </div>
       </section>
       <section class="status">
         <div id="statusMessage">No files loaded.</div>
+        <div id="metricsStatus"></div>
       </section>
       <section class="graph-container">
         <svg id="graph"></svg>

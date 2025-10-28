@@ -5,6 +5,7 @@ A lightweight, client-side web application for exploring knowledge graphs. Uploa
 ## Getting started
 
 1. Open `index.html` in your browser. No build step or server is required.
+   - If you do not have internet access, the app automatically falls back to the bundled `vendor/d3.v7.min.js`.
 2. Click **Select JSON files** and choose one or more files that match the expected schema.
 3. Drag nodes to rearrange the layout. Hover over nodes to view their descriptions and over relations to see any attached references.
 4. Use **Clear graph** to remove the current visualization and load new files.

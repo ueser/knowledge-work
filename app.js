@@ -2,19 +2,130 @@ const fileInput = document.getElementById('fileInput');
 const clearButton = document.getElementById('clearButton');
 const statusMessage = document.getElementById('statusMessage');
 const tooltip = document.getElementById('tooltip');
-const svg = d3.select('#graph');
 
+let svg = null;
 let currentGraph = { nodes: [], edges: [] };
+let currentLayout = 'force';
+let forceStrength = -350;
+let currentSimulation = null;
+let currentMetric = 'degree';
+let metricThreshold = 0;
+let colorByMetric = false;
+let sizeByMetric = false;
+let metricsCalculated = false;
 
-fileInput.addEventListener('change', handleFileUpload);
-clearButton.addEventListener('click', clearGraph);
-window.addEventListener('resize', () => {
-  if (currentGraph.nodes.length) {
-    renderGraph(currentGraph);
+// Wait for D3 to load before initializing
+function waitForD3() {
+  return new Promise((resolve) => {
+    const checkInterval = setInterval(() => {
+      if (typeof d3 !== 'undefined') {
+        clearInterval(checkInterval);
+        resolve();
+      }
+    }, 50);
+    // Timeout after 10 seconds
+    setTimeout(() => {
+      clearInterval(checkInterval);
+      resolve();
+    }, 10000);
+  });
+}
+
+waitForD3().then(() => {
+  if (typeof d3 === 'undefined') {
+    console.error(
+      'D3 failed to load. The visualization requires the D3 library to render.',
+    );
+    statusMessage.textContent =
+      'Unable to initialize the visualization because the D3 library did not load. Please check your internet connection (or bundle D3 locally) and reload the page.';
+    fileInput.disabled = true;
+    clearButton.disabled = true;
+  } else {
+    svg = d3.select('#graph');
+    fileInput.addEventListener('change', handleFileUpload);
+    clearButton.addEventListener('click', clearGraph);
+
+    // Layout selector
+    const layoutSelect = document.getElementById('layoutSelect');
+    const forceStrengthSlider = document.getElementById('forceStrength');
+    layoutSelect.addEventListener('change', (e) => {
+      currentLayout = e.target.value;
+      // Enable/disable force strength slider based on layout
+      forceStrengthSlider.disabled = currentLayout !== 'force';
+      if (currentGraph.nodes.length) {
+        renderGraph(currentGraph);
+      }
+    });
+
+    // Force strength slider (only works in force layout)
+    const forceStrengthValue = document.getElementById('forceStrengthValue');
+    forceStrengthSlider.addEventListener('input', (e) => {
+      forceStrength = parseInt(e.target.value);
+      forceStrengthValue.textContent = forceStrength;
+      if (currentGraph.nodes.length && currentSimulation && currentLayout === 'force') {
+        // Update the force and reheat the simulation to see the effect
+        currentSimulation.force('charge', d3.forceManyBody().strength(forceStrength));
+        currentSimulation.alpha(0.3).restart();
+      }
+    });
+
+    // Disable force strength slider for non-force layouts
+    forceStrengthSlider.disabled = currentLayout !== 'force';
+
+    // Metric selector
+    const metricSelect = document.getElementById('metricSelect');
+    metricSelect.addEventListener('change', (e) => {
+      currentMetric = e.target.value;
+      if (currentGraph.nodes.length && metricsCalculated) {
+        updateMetricsStatus(currentGraph);
+        renderGraph(currentGraph);
+      }
+    });
+
+    // Metric threshold slider
+    const metricThresholdSlider = document.getElementById('metricThreshold');
+    const metricThresholdValue = document.getElementById('metricThresholdValue');
+    metricThresholdSlider.addEventListener('input', (e) => {
+      metricThreshold = parseInt(e.target.value) / 100;
+      metricThresholdValue.textContent = e.target.value + '%';
+      if (currentGraph.nodes.length && metricsCalculated) {
+        renderGraph(currentGraph);
+      }
+    });
+
+    // Color by metric checkbox
+    const colorByMetricCheckbox = document.getElementById('colorByMetric');
+    colorByMetricCheckbox.addEventListener('change', (e) => {
+      colorByMetric = e.target.checked;
+      if (currentGraph.nodes.length && metricsCalculated) {
+        renderGraph(currentGraph);
+      }
+    });
+
+    // Size by metric checkbox
+    const sizeByMetricCheckbox = document.getElementById('sizeByMetric');
+    sizeByMetricCheckbox.addEventListener('change', (e) => {
+      sizeByMetric = e.target.checked;
+      if (currentGraph.nodes.length && metricsCalculated) {
+        renderGraph(currentGraph);
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      if (currentGraph.nodes.length) {
+        renderGraph(currentGraph);
+      }
+    });
   }
 });
 
 async function handleFileUpload(event) {
+  if (!svg) {
+    statusMessage.textContent =
+      'Cannot load the graph because the visualization library is unavailable.';
+    return;
+  }
+
   const files = Array.from(event.target.files || []);
 
   if (!files.length) {
@@ -23,7 +134,11 @@ async function handleFileUpload(event) {
 
   try {
     const contents = await Promise.all(files.map(readGraphFile));
-    const mergedGraph = mergeGraphs(contents);
+    // Merge new files with existing graph
+    const graphsToMerge = currentGraph.nodes.length > 0 ? [currentGraph, ...contents] : contents;
+    let mergedGraph = mergeGraphs(graphsToMerge);
+    // Calculate metrics
+    mergedGraph = calculateMetrics(mergedGraph);
     currentGraph = mergedGraph;
     renderGraph(mergedGraph);
     statusMessage.textContent = `Loaded ${files.length} file${
@@ -33,6 +148,8 @@ async function handleFileUpload(event) {
     } and ${mergedGraph.edges.length} relation${
       mergedGraph.edges.length !== 1 ? 's' : ''
     }.`;
+    // Clear the file input so the same files can be uploaded again if needed
+    event.target.value = '';
   } catch (error) {
     console.error(error);
     statusMessage.textContent = `Error: ${error.message}`;
@@ -153,14 +270,122 @@ function mergeGraphs(graphs) {
   return { nodes, edges };
 }
 
+function calculateMetrics(graph) {
+  // Check if Graphology is available
+  if (typeof graphology === 'undefined' || typeof graphologyMetrics === 'undefined') {
+    console.warn('Graphology not loaded. Metrics unavailable.');
+    return graph;
+  }
+
+  try {
+    // Create a directed graph
+    const g = new graphology.DirectedGraph();
+
+    // Add nodes
+    graph.nodes.forEach(node => {
+      g.addNode(node.id, { ...node });
+    });
+
+    // Add edges
+    graph.edges.forEach(edge => {
+      const source = typeof edge.source === 'object' ? edge.source.id : edge.source;
+      const target = typeof edge.target === 'object' ? edge.target.id : edge.target;
+
+      if (g.hasNode(source) && g.hasNode(target) && !g.hasEdge(source, target)) {
+        g.addEdge(source, target, { ...edge });
+      }
+    });
+
+    // Calculate metrics
+    const pageRank = graphologyMetrics.centrality.pagerank(g, { alpha: 0.85, tolerance: 0.0001 });
+    const betweenness = graphologyMetrics.centrality.betweenness(g);
+    const closeness = graphologyMetrics.centrality.closeness(g);
+
+    // Normalize metrics to 0-1 range
+    const normalize = (values) => {
+      const vals = Object.values(values);
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      const range = max - min;
+      if (range === 0) return values;
+      const normalized = {};
+      Object.keys(values).forEach(key => {
+        normalized[key] = (values[key] - min) / range;
+      });
+      return normalized;
+    };
+
+    const normalizedPageRank = normalize(pageRank);
+    const normalizedBetweenness = normalize(betweenness);
+    const normalizedCloseness = normalize(closeness);
+
+    // Calculate max degree for normalization
+    let maxDegree = 0;
+    graph.nodes.forEach(node => {
+      const degree = g.degree(node.id);
+      if (degree > maxDegree) maxDegree = degree;
+    });
+
+    // Attach metrics to nodes
+    graph.nodes.forEach(node => {
+      const degree = g.degree(node.id);
+      node.degree = degree;
+      node.inDegree = g.inDegree(node.id);
+      node.outDegree = g.outDegree(node.id);
+      node.normalizedDegree = maxDegree > 0 ? degree / maxDegree : 0;
+      node.pagerank = normalizedPageRank[node.id] || 0;
+      node.betweenness = normalizedBetweenness[node.id] || 0;
+      node.closeness = normalizedCloseness[node.id] || 0;
+    });
+
+    metricsCalculated = true;
+    updateMetricsStatus(graph);
+
+    console.log('Metrics calculated successfully');
+    return graph;
+  } catch (error) {
+    console.error('Error calculating metrics:', error);
+    metricsCalculated = false;
+    return graph;
+  }
+}
+
+function updateMetricsStatus(graph) {
+  const metricsStatusEl = document.getElementById('metricsStatus');
+  if (!metricsStatusEl || !metricsCalculated) return;
+
+  // Get current metric values
+  const metricKey = currentMetric === 'degree' ? 'normalizedDegree' : currentMetric;
+  const values = graph.nodes.map(n => n[metricKey] || 0);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+
+  // Find top 3 nodes
+  const sorted = [...graph.nodes].sort((a, b) => (b[metricKey] || 0) - (a[metricKey] || 0));
+  const top3 = sorted.slice(0, 3).map(n => `${n.name || n.id} (${((n[metricKey] || 0) * 100).toFixed(1)}%)`);
+
+  metricsStatusEl.innerHTML = `
+    <strong>${currentMetric.charAt(0).toUpperCase() + currentMetric.slice(1)}:</strong>
+    Min: ${(min * 100).toFixed(1)}%, Max: ${(max * 100).toFixed(1)}%, Avg: ${(mean * 100).toFixed(1)}%
+    | Top 3: ${top3.join(', ')}
+  `;
+}
+
 function renderGraph(graph) {
+  if (!svg) {
+    return;
+  }
+
   hideTooltip();
   svg.selectAll('*').remove();
 
-  const container = svg.node().getBoundingClientRect();
-  const width = container.width || 900;
-  const height = container.height || 600;
-  svg.attr('viewBox', `0 0 ${width} ${height}`);
+  const svgNode = svg.node();
+  const parentElement = svgNode.parentElement;
+  const width = parentElement.clientWidth || 900;
+  const height = parentElement.clientHeight || 600;
+  svg.attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet');
 
   const defs = svg.append('defs');
   defs
@@ -181,8 +406,28 @@ function renderGraph(graph) {
   const labelGroup = svg.append('g').attr('class', 'labels');
   const nodeGroup = svg.append('g').attr('class', 'nodes');
 
-  const links = graph.edges.map((edge) => ({ ...edge }));
-  const nodes = graph.nodes.map((node) => ({ ...node }));
+  // Create node lookup map for link resolution (needs to be accessible in ticked())
+  const nodeMap = new Map();
+  const nodes = graph.nodes.map((node) => {
+    const n = { ...node };
+    // Reset position properties to allow fresh layout calculation
+    delete n.x;
+    delete n.y;
+    delete n.vx;
+    delete n.vy;
+    delete n.fx;
+    delete n.fy;
+    nodeMap.set(n.id, n);
+    return n;
+  });
+
+  const links = graph.edges.map((edge) => {
+    const link = { ...edge };
+    // Pre-resolve node references for static layouts
+    link.sourceNode = nodeMap.get(link.source);
+    link.targetNode = nodeMap.get(link.target);
+    return link;
+  });
 
   const link = linkGroup
     .selectAll('line')
@@ -245,49 +490,245 @@ function renderGraph(graph) {
     .on('mousemove', updateTooltipPosition)
     .on('mouseleave', hideTooltip);
 
+  // Create color scale for metrics - using Viridis for better visibility
+  const colorScale = d3.scaleSequential(d3.interpolateViridis).domain([0, 1]);
+
+  // Get metric key for current metric
+  const metricKey = currentMetric === 'degree' ? 'normalizedDegree' : currentMetric;
+
   node
     .append('circle')
-    .attr('r', 22)
-    .attr('fill', '#fff')
+    .attr('r', (d) => {
+      if (!sizeByMetric || !metricsCalculated) return 22;
+      // Map metric value to radius 10-40
+      const metricValue = d[metricKey] || 0;
+      return 10 + metricValue * 30;
+    })
+    .attr('fill', (d) => {
+      if (!colorByMetric || !metricsCalculated) return '#fff';
+      const metricValue = d[metricKey] || 0;
+      return colorScale(metricValue);
+    })
     .attr('stroke-width', 2);
 
   node
     .append('text')
     .text((d) => d.name || d.id);
 
-  const simulation = d3
-    .forceSimulation(nodes)
-    .force(
-      'link',
-      d3
-        .forceLink(links)
-        .id((d) => d.id)
-        .distance(130)
-        .strength(0.2),
-    )
-    .force('charge', d3.forceManyBody().strength(-350))
-    .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collision', d3.forceCollide().radius(60))
-    .on('tick', ticked);
+  // Initialize node positions based on layout type
+  if (currentLayout === 'circular' && nodes.length > 0) {
+    const radius = Math.min(width, height) / 3;
+    // Sort by metric if metrics are available
+    let sortedNodes = nodes;
+    if (metricsCalculated) {
+      sortedNodes = [...nodes].sort((a, b) => (b[metricKey] || 0) - (a[metricKey] || 0));
+    }
+    sortedNodes.forEach((d, i) => {
+      const angle = (i / sortedNodes.length) * 2 * Math.PI;
+      d.x = width / 2 + radius * Math.cos(angle);
+      d.y = height / 2 + radius * Math.sin(angle);
+    });
+  } else if (currentLayout === 'hierarchical' && nodes.length > 0) {
+    // Sort nodes by selected metric (or degree if metrics not calculated)
+    let sortedNodes;
+    if (metricsCalculated) {
+      sortedNodes = [...nodes].sort((a, b) => (b[metricKey] || 0) - (a[metricKey] || 0));
+    } else {
+      // Fallback to degree-based sorting
+      const degrees = new Map();
+      links.forEach((link) => {
+        const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+        const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+        degrees.set(sourceId, (degrees.get(sourceId) || 0) + 1);
+        degrees.set(targetId, (degrees.get(targetId) || 0) + 1);
+      });
+      sortedNodes = [...nodes].sort((a, b) => (degrees.get(b.id) || 0) - (degrees.get(a.id) || 0));
+    }
+
+    const layers = Math.ceil(Math.sqrt(nodes.length));
+    const nodesPerLayer = Math.ceil(nodes.length / layers);
+    sortedNodes.forEach((d, i) => {
+      const layer = Math.floor(i / nodesPerLayer);
+      const posInLayer = i % nodesPerLayer;
+      d.x = (posInLayer + 0.5) * (width / nodesPerLayer);
+      d.y = (layer + 1) * (height / (layers + 1));
+      // Ensure values are valid numbers
+      if (!isFinite(d.x)) d.x = width / 2;
+      if (!isFinite(d.y)) d.y = height / 2;
+    });
+  } else {
+    // Force layout - initialize nodes with center position + small random offset
+    nodes.forEach((d) => {
+      if (!d.x) d.x = width / 2 + (Math.random() - 0.5) * 100;
+      if (!d.y) d.y = height / 2 + (Math.random() - 0.5) * 100;
+    });
+  }
+
+  // Stop any existing simulation to prevent it from modifying our data
+  if (currentSimulation) {
+    currentSimulation.stop();
+  }
+
+  let simulation;
+
+  if (currentLayout === 'force') {
+    // Force layout with full simulation
+    // IMPORTANT: forceLink will modify links array, replacing source/target strings with node references
+
+    // Add padding to keep nodes comfortably inside viewport
+    const padding = 50;
+
+    simulation = d3.forceSimulation(nodes)
+      .force(
+        'link',
+        d3
+          .forceLink(links)
+          .id((d) => d.id)
+          .distance(130)
+          .strength(0.2),
+      )
+      .force('charge', d3.forceManyBody().strength(forceStrength))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collision', d3.forceCollide().radius(60))
+      .force('x', d3.forceX(width / 2).strength(0.05))
+      .force('y', d3.forceY(height / 2).strength(0.05))
+      .alpha(1)
+      .restart()
+      .on('tick', () => {
+        // Constrain nodes to viewport with padding
+        nodes.forEach(d => {
+          d.x = Math.max(padding, Math.min(width - padding, d.x));
+          d.y = Math.max(padding, Math.min(height - padding, d.y));
+        });
+        ticked();
+      });
+  } else {
+    // Circular and hierarchical: static layout, no simulation
+    // Just render the initial positions once
+    ticked();
+  }
+
+  // Store simulation for real-time force adjustment
+  currentSimulation = simulation;
+
+  // Apply metric-based filtering
+  if (metricsCalculated && metricThreshold > 0) {
+    node.classed('dimmed', (d) => {
+      const metricValue = d[metricKey] || 0;
+      return metricValue < metricThreshold;
+    });
+
+    // Dim links connected to dimmed nodes
+    link.classed('dimmed', (d) => {
+      let source, target;
+      if (typeof d.source === 'object' && d.source) {
+        source = nodeMap.get(d.source.id || d.source);
+      } else {
+        source = d.sourceNode;
+      }
+      if (typeof d.target === 'object' && d.target) {
+        target = nodeMap.get(d.target.id || d.target);
+      } else {
+        target = d.targetNode;
+      }
+
+      const sourceMetric = source ? (source[metricKey] || 0) : 0;
+      const targetMetric = target ? (target[metricKey] || 0) : 0;
+      return sourceMetric < metricThreshold || targetMetric < metricThreshold;
+    });
+  } else {
+    // Remove dimming if no threshold
+    node.classed('dimmed', false);
+    link.classed('dimmed', false);
+  }
 
   function ticked() {
     link
-      .attr('x1', (d) => d.source.x)
-      .attr('y1', (d) => d.source.y)
-      .attr('x2', (d) => d.target.x)
-      .attr('y2', (d) => d.target.y);
+      .attr('x1', (d) => {
+        let source;
+        if (typeof d.source === 'object' && d.source) {
+          source = nodeMap.get(d.source.id || d.source);
+        } else {
+          source = d.sourceNode;
+        }
+        const x = source ? source.x : 0;
+        return isFinite(x) ? x : 0;
+      })
+      .attr('y1', (d) => {
+        let source;
+        if (typeof d.source === 'object' && d.source) {
+          source = nodeMap.get(d.source.id || d.source);
+        } else {
+          source = d.sourceNode;
+        }
+        const y = source ? source.y : 0;
+        return isFinite(y) ? y : 0;
+      })
+      .attr('x2', (d) => {
+        let target;
+        if (typeof d.target === 'object' && d.target) {
+          target = nodeMap.get(d.target.id || d.target);
+        } else {
+          target = d.targetNode;
+        }
+        const x = target ? target.x : 0;
+        return isFinite(x) ? x : 0;
+      })
+      .attr('y2', (d) => {
+        let target;
+        if (typeof d.target === 'object' && d.target) {
+          target = nodeMap.get(d.target.id || d.target);
+        } else {
+          target = d.targetNode;
+        }
+        const y = target ? target.y : 0;
+        return isFinite(y) ? y : 0;
+      });
 
-    node.attr('transform', (d) => `translate(${d.x}, ${d.y})`);
+    node.attr('transform', (d) => {
+      const x = isFinite(d.x) ? d.x : 0;
+      const y = isFinite(d.y) ? d.y : 0;
+      if (!isFinite(d.x) || !isFinite(d.y)) {
+        console.warn(`Node ${d.id}: invalid position (${d.x}, ${d.y}), using (${x}, ${y})`);
+      }
+      return `translate(${x}, ${y})`;
+    });
 
     linkLabels.attr('transform', (d) => {
-      const x = (d.source.x + d.target.x) / 2;
-      const y = (d.source.y + d.target.y) / 2;
+      // In force layout, d.source/d.target are node objects
+      // In static layouts, they might be strings so use sourceNode/targetNode
+      let source, target;
+      if (typeof d.source === 'object' && d.source) {
+        // Force layout has resolved these to node objects
+        // But they might be OLD node objects from a previous render
+        // So look them up by ID in the current nodeMap
+        source = nodeMap.get(d.source.id || d.source);
+      } else {
+        // Static layout - use pre-resolved nodes
+        source = d.sourceNode;
+      }
+
+      if (typeof d.target === 'object' && d.target) {
+        target = nodeMap.get(d.target.id || d.target);
+      } else {
+        target = d.targetNode;
+      }
+      if (!source || !target) {
+        return `translate(0, 0)`;
+      }
+      const x = (source.x + target.x) / 2;
+      const y = (source.y + target.y) / 2;
+      if (!isFinite(x) || !isFinite(y)) {
+        return `translate(0, 0)`;
+      }
       return `translate(${x}, ${y})`;
     });
 
     linkLabels.each(function (d) {
       const text = d3.select(this).select('text');
-      const bbox = text.node().getBBox();
+      const textNode = text.node();
+      if (!textNode) return; // Skip if text node doesn't exist yet
+      const bbox = textNode.getBBox();
       d3.select(this)
         .select('rect')
         .attr('x', bbox.x - 6)
@@ -298,28 +739,52 @@ function renderGraph(graph) {
   }
 
   function dragStarted(event, d) {
-    if (!event.active) simulation.alphaTarget(0.3).restart();
+    if (simulation && !event.active) simulation.alphaTarget(0.3).restart();
     d.fx = d.x;
     d.fy = d.y;
   }
 
   function dragged(event, d) {
-    d.fx = event.x;
-    d.fy = event.y;
+    // Constrain drag position to viewport with padding
+    const padding = 50;
+    const constrainedX = Math.max(padding, Math.min(width - padding, event.x));
+    const constrainedY = Math.max(padding, Math.min(height - padding, event.y));
+
+    d.fx = constrainedX;
+    d.fy = constrainedY;
+
+    // For static layouts, update positions immediately and re-render
+    if (!simulation) {
+      d.x = constrainedX;
+      d.y = constrainedY;
+      ticked();
+    }
   }
 
   function dragEnded(event, d) {
-    if (!event.active) simulation.alphaTarget(0);
-    d.fx = null;
-    d.fy = null;
+    if (simulation && !event.active) simulation.alphaTarget(0);
+
+    // For static layouts, keep the dragged position
+    if (!simulation) {
+      d.x = event.x;
+      d.y = event.y;
+      d.fx = null;
+      d.fy = null;
+    } else {
+      // For force layout, release the fixed position
+      d.fx = null;
+      d.fy = null;
+    }
   }
 }
 
 function clearGraph() {
   fileInput.value = '';
   currentGraph = { nodes: [], edges: [] };
-  svg.selectAll('*').remove();
-  statusMessage.textContent = 'Graph cleared. Select new files to visualize.';
+  if (svg) {
+    svg.selectAll('*').remove();
+    statusMessage.textContent = 'Graph cleared. Select new files to visualize.';
+  }
   hideTooltip();
 }
 
@@ -342,7 +807,21 @@ function hideTooltip() {
 function formatNodeTooltip(node) {
   const title = node.name || node.id || 'Node';
   const description = node.description ? node.description : 'No description';
-  return `<strong>${escapeHtml(title)}</strong><br />${escapeHtml(description)}`;
+
+  let metricsHtml = '';
+  if (metricsCalculated) {
+    metricsHtml = `
+      <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255, 255, 255, 0.2);">
+        <div class="tooltip-meta">Graph Metrics</div>
+        <strong>Degree:</strong> ${node.degree || 0} (in: ${node.inDegree || 0}, out: ${node.outDegree || 0})<br/>
+        <strong>PageRank:</strong> ${((node.pagerank || 0) * 100).toFixed(1)}%<br/>
+        <strong>Betweenness:</strong> ${((node.betweenness || 0) * 100).toFixed(1)}%<br/>
+        <strong>Closeness:</strong> ${((node.closeness || 0) * 100).toFixed(1)}%
+      </div>
+    `;
+  }
+
+  return `<strong>${escapeHtml(title)}</strong><br />${escapeHtml(description)}${metricsHtml}`;
 }
 
 function formatEdgeTooltip(edge) {
